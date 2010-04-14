@@ -4,9 +4,10 @@
 #include <stdio.h>
 #include <string.h>
 #include "notify.h"
+#include "defs.h"
 
 // error_table[talk(..)-1]
-char* error_table[] = {
+static char* error_table[] = {
     "Auth error",
     "Insufficient input from socket #1 || Wrong version.",
     "No acceptable methods",
@@ -31,29 +32,29 @@ void create_timestr()
     strftime(timestr, 255, timeformat, tmp);
 }
 
-void notify_making_connection(void* in, char atyp, void* src)
+void notify_making_connection(const s_client* client)
 {
     char* ptr; // Store ptr to string to print as the target.
-    switch (atyp)
+    switch (client->atyp)
     {
         case 1: /* IPv4 */
-            inet_ntop(AF_INET, in, ipstr, 255);
+            inet_ntop(AF_INET, client->daddr, ipstr, 255);
             ptr = ipstr;
             break;
         case 3: /* Domain name */
-            ptr = (char*) in;
+            ptr = (char*) client->daddr;
         default:
             ptr = NULL;
             return;
     }
     create_timestr();
-    inet_ntop(AF_INET, src, ipstr2, 255);
+    inet_ntop(AF_INET, &client->addr.sin_addr.s_addr, ipstr2, 255);
     if (ptr == NULL) { // a.k.a. unknown atyp
         printf("[%s] %s requested connection with weird ATYP: %i.\n",
-                timestr, ipstr2, atyp);
+                timestr, ipstr2, client->atyp);
     }
     printf("[%s] %s requested connection to %s. (ATYP: %i)\n",
-            timestr, ipstr2, ptr, atyp);
+            timestr, ipstr2, ptr, client->atyp);
 }
 
 void notify_custom(void* in, char* text)

@@ -6,11 +6,12 @@
 #include "notify.h"
 #include "proto.h"
 #include "networking.h"
+#include "defs.h"
 
 extern int errno;
 
 /*
- * Make_connection() return values:
+ * {{{ Make_connection() return values:
  * + X'00' succeeded
  * + X'01' general SOCKS server failure
  * + X'02' connection not allowed by ruleset
@@ -21,30 +22,32 @@ extern int errno;
  * + X'07' Command not supported
  * + X'08' Address type not supported
  * + X'09' to X'FF' unassigned
- * +------------------------------- -  -   -
+ * +------------------------------- }}}
  */
 
-char make_connection(char cmd, char atyp, char dstaddr[], uint16_t port,
-        void* srcip, int* sock, void* ip)
-{
-    unsigned int destip = *((int*) dstaddr);
+char
+make_connection(s_client* client)
+{ // {{{ Big-ass switch/if function.
+    unsigned int destip = *((int*) client->daddr);
 #ifdef SOCK_VERBOSE
-    notify_making_connection(&destip, atyp, srcip);
+    notify_making_connection(client);
 #endif
-    switch (cmd)
+    switch (client->cmd)
     {
         case 1: // CONNECT
-            switch (atyp)
+            switch (client->atyp)
             {
                 //char myconnect_ip(int ip, uint16_t port, int* buf)
                 //char myconnect_domain(char* host, uint16_t port, int* buf)
                 case 1: // IPv4
-                    *((uint32_t*) ip) = destip;
-                    if (!myconnect_ip(destip, ntohs(port), sock))
+                    client->ip = destip;
+                    if (!myconnect_ip(client->ip, ntohs(client->dport),
+                                &client->sd))
                         return 0;
                     break;
                 case 3: // Domain name.
-                    if (!myconnect_domain(dstaddr, ntohs(port), sock, ip))
+                    if (!myconnect_domain(client->daddr, ntohs(client->dport),
+                                &client->sd, &client->ip))
                         return 0;
                     break;
                 case 4: // IPv6
@@ -70,110 +73,126 @@ char make_connection(char cmd, char atyp, char dstaddr[], uint16_t port,
             return 7;
     }
     return 0;
-}
+} /// Big-ass function }}}
 
-char talk(int fd, void* srcip)
+char
+talk(s_client* client)
 {
+    /* {{{ Handshake */
     int ret; // For saving various return values.
     uint8_t buf[255], nmethods;
-    // Client sends (VERSION, NMETHODS)
-    if ((ret = recv(fd, &buf, 2, 0)) != 2)
+    // Client sends (VERSION, NMETHODS) -- we read it
+    if ((ret = recv(client->fd, &buf, 2, 0)) != 2)
         return 1;
+    client->ver = buf[0];
     nmethods = buf[1];
     // We read all the nMETHODS
-    if (!(buf[0] == 5 && recv(fd, &buf, nmethods, 0) == nmethods))
+    if (!recv(client->fd, &buf, nmethods, 0) == nmethods)
         return 2;
     // We choose the one we like -- \x00(no auth)
     int choice, c;
-    for (choice = -1, c = 0; c < nmethods && (1 << 9 & choice); c++)
+    for (choice = -1, c = 0;
+            c < nmethods && (1 << 9 & choice) &&
+              client->ver == SOCKS_VER;
+            c++)
         switch (buf[c]) {
             case 0x00:
             //case 0x02: // in future, possibly
                 choice = buf[c];
         }
     // We send the METHOD we chosed, and \xFF, if there weren't any we like
-    buf[0] = 5;
+    buf[0] = SOCKS_VER;
     if (choice != -1)
         buf[1] = (char) choice;
     else
         buf[1] = 0xff;
-    send(fd, buf, 2, 0);
+    send(client->fd, buf, 2, 0);
     if (choice == -1)
         return 3;
+    client->method = buf[1];
+    /* Handshake }}} */
 
-    /* Client is now sending request — VER, CMD, RESRVD.(\0), ATYP
-       (Full request is VER, CMD, RSV, ATYP, DST.ADDR, DST.PORT) */
-    if ((ret = recv(fd, buf, 4, 0)) != 4)
+    /* {{{ Request
+     * Client is now sending request — VER, CMD, RESRVD.(\0), ATYP
+     * (Full request is VER, CMD, RSV, ATYP, DST.ADDR, DST.PORT) */
+    if ((ret = recv(client->fd, buf, 4, 0)) != 4)
         return 4;
-    uint8_t cmd = buf[1], atyp = buf[3];
-    uint8_t buf2[255];
+    client->cmd = buf[1];
+    client->atyp = buf[3];
     // Receiving DST.ADDR
-    switch (atyp) {
+    switch (client->atyp) {
         case 0x01: // IPv4
-            if (recv(fd, buf, 4, 0) != 4)
+            if (recv(client->fd, client->daddr, 4, 0) != 4)
                 return 6;
-            memcpy(buf2, buf, 4);
             break;
         case 0x03: // Domain name
-            if (recv(fd, buf, 1, 0) != 1)
+            // Receiving length of the incoming string.
+            if (recv(client->fd, buf, 1, 0) != 1)
                 return 7;
             char tmplen = buf[0];
-            memset(buf, 0, 255);
-            if (recv(fd, buf, tmplen, 0) != tmplen)
+            memset(client->daddr, 0, 255);
+            if (recv(client->fd, client->daddr, tmplen, 0) != tmplen)
                 return 8;
-            memcpy(buf2, buf, 4);
             break;
         /*case 0x04: // IPv6
             if (recv(fd, buf, 4, 0) != 4)
                 return 9;
-            memcpy(buf, buf2, 4);
             break; */
         default:
-            cmd = INVALID_ATYP; // Invalid command.
+            client->cmd = INVALID_ATYP; // Invalid command.
     }
     // Receiving DST.PORT from request.
-    if (recv(fd, buf, 2, 0) != 2)
+    if (recv(client->fd, &client->dport, 2, 0) != 2)
         return 5;
-    // Request is filled
+    // Request is filled }}}
 
-    // Making a connection(we need to do it before a reply can be sent)
-    int sd; // sd -- socket descriptor
-    uint32_t ip;
-    //char make_connection(char cmd, char atyp, char dstaddr[], uint16_t port,
-    //void* srcip, int* sock, void* ip)
+    /* {{{ Reply
+     * Making a connection(we need to do it before a reply can be sent)
+    char make_connection(char cmd, char atyp, char dstaddr[], uint16_t port,
+    void* srcip, int* sock, void* ip)
     ret = make_connection(cmd, atyp, (char*) buf2, *((uint16_t*) buf), srcip,
-            &sd, &ip);
-    buf[0] = 0x05;
+            &sd, &ip); */
+    ret = make_connection(client);
+    /* Reply: VER, REPLY, RSV, ATYP, BIND.VAR, BIND.PORT */
+    buf[0] = SOCKS_VER;
     buf[1] = ret;
     buf[2] = 0;
-    buf[3] = atyp;
-    *((uint32_t*) &(buf[4])) = ip; // This writes in buf[4 — 7].
-    send(fd, buf, 10, 0);
+    buf[3] = client->atyp;
+    *((uint32_t*) &(buf[4])) = client->ip; // This writes in buf[4 — 7].
+    *((uint16_t*) &(buf[8])) = client->dport;
+    send(client->fd, buf, 10, 0);
+    /* some test crap
     buf[0] = 'a';
     buf[1] = 'b';
-    send(sd, buf, 2, 0);
+    send(sd, buf, 2, 0); */
+    /* Reply }}} */
 
+    /* {{{ Crap */
 #ifdef SOCK_VERBOSE
-    snprintf((char*) buf2, 255, ": reply sent with reply code %i", ret);
-    notify_custom(srcip, (char*) buf2);
+    snprintf((char*) buf, 255, ": reply sent with reply code %i", ret);
+    notify_custom(&client->addr.sin_addr.s_addr, (char*) buf);
 #endif
     if (ret != 0)
         return 10;
 #ifdef SOCK_VERBOSE
-    notify_custom(srcip, " is smashed.");
+    notify_custom(&client->addr.sin_addr.s_addr, " is smashed.");
 #endif
-    smash_sockets(fd, sd, srcip);
-    //smash_sockets(sd, sd, srcip);
-    close(sd);
+    fuse_sockets(client->fd, client->sd, client);
+    close(client->sd);
+    /* Crap }}} */
 
     return 0;
 }
 
-void talk_wrapper(int fd, struct sockaddr_in client_addr)
+void
+talk_wrapper(s_client client)
 {
-    int ret = talk(fd, &client_addr.sin_addr.s_addr);
+    // TODO: s/fork/pthreads/
+    if (fork() != 0)
+        return;
+    int ret = talk(&client);
 #ifdef SOCK_VERBOSE
-    notify_disconnected(&client_addr.sin_addr.s_addr, ret, errno);
+    notify_disconnected(&client.addr.sin_addr.s_addr, ret, errno);
 #endif
-    close(fd);
+    close(client.fd);
 }

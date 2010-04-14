@@ -1,12 +1,18 @@
+#ifndef GUARD_SRC_NETWORKING_H_
+#define GUARD_SRC_NETWORKING_H_
+
 #include <netinet/in.h>
 #include <signal.h>
+#include "defs.h"
 #define blen 8096
 
 extern uint16_t port;
 
-char resolvehost(struct sockaddr_in* buf, char* host);
-int myconnect_ip(int ip, uint16_t port, int* buf);
-int myconnect_domain(char* host, uint16_t port, int* buf, void* ip);
+char resolvehost(struct sockaddr_in*, char*);
+int myconnect_ip(uint32_t, uint16_t, int*);
+int myconnect_domain(char*, uint16_t, int*, uint32_t*);
 int create_socket(uint16_t alterport);
-void smash_sockets(int sd1, int sd2, void*);
+void fuse_sockets(int, int, s_client*);
 sig_atomic_t accept_loop(int fd);
+
+#endif /* GUARD_SRC_NETWORKING_H_ */

@@ -2,7 +2,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h> /* For sig_atomic_t.*/
+#include <signal.h> /* For sig_atomic_t. */
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -10,10 +10,13 @@
 #include "proto.h"
 #include "networking.h"
 #include "notify.h"
+#include "defs.h"
 
 extern sig_atomic_t sigcaught;
 
-char resolvehost(struct sockaddr_in* buf, char* host)
+/* TODO: Use getaddrinfo(); !!! */
+char
+resolvehost(struct sockaddr_in* buf, char* host)
 {
     struct hostent *hp;
     if ((hp = gethostbyname(host)) == 0) {
@@ -25,7 +28,8 @@ char resolvehost(struct sockaddr_in* buf, char* host)
     return 0;
 }
 
-int myconnect_ip(int ip, uint16_t port, int* buf)
+int
+myconnect_ip(uint32_t ip, uint16_t port, int* buf)
 {
     int sd;
     if ((sd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
@@ -44,7 +48,8 @@ int myconnect_ip(int ip, uint16_t port, int* buf)
     return 0;
 }
 
-int myconnect_domain(char* host, uint16_t port, int* buf, void* ip)
+int
+myconnect_domain(char* host, uint16_t port, int* buf, uint32_t* ip)
 {
     int sd;
     if ((sd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
@@ -60,11 +65,12 @@ int myconnect_domain(char* host, uint16_t port, int* buf, void* ip)
         return -1;
     }
     *buf = sd;
-    *((uint32_t*) ip) = hostaddr.sin_addr.s_addr;
+    *ip = hostaddr.sin_addr.s_addr;
     return sd;
 }
 
-int create_socket(uint16_t alterport)
+int
+create_socket(uint16_t alterport)
 {
     int sock;
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) == -1)
@@ -84,9 +90,8 @@ int create_socket(uint16_t alterport)
     return sock;
 }
 
-// "link_sockets" might be more appropriate name.
 void
-smash_sockets(int sd1, int sd2, void* srcip)
+fuse_sockets(int sd1, int sd2, s_client* client)
 {
     // No checking whether socks are valid will be done.
     char buf[blen];
@@ -104,14 +109,15 @@ smash_sockets(int sd1, int sd2, void* srcip)
         FD_SET(sd2, &set);
         tv.tv_sec  = 1;
         tv.tv_usec = 0;
-        /**/
         switch (select(sd2+1, &set, NULL, NULL, NULL) < 0) {
             case -1:
                 return;
             case 0:
                 continue;
         }
-        notify_custom(srcip, ": Escape from select().");
+#ifdef SOCK_VERBOSE
+        notify_custom(&client->addr.sin_addr.s_addr, ": Escape from select().");
+#endif
         if (FD_ISSET(sd1, &set) == 0) { // If true, then sd2 is set.
             s1 = &sd2;
             s2 = &sd1;
@@ -127,14 +133,19 @@ smash_sockets(int sd1, int sd2, void* srcip)
                 return;
             if (send(*s2, buf, blen, 0) < 0)
                 return;
-            notify_custom(srcip, ": Bytes sent one way or another.");
+#ifdef SOCK_VERBOSE
+            notify_custom(&client->addr.sin_addr.s_addr,
+                    ": Bytes sent one way or another.");
+#endif
         } while (ret == blen);
     }
 }
 
-int select_wrapper(int fd, int tv_sec)
+int
+select_wrapper(int fd, int tv_sec)
 {
-    // Note: (p)select returns 0 on timeout, but modifies fdset on success.
+    // Note: (p)select returns 0 on timeout or error(like signal),
+    // but modifies fdset on success.
     fd_set fdset;
     struct timeval timeout = {.tv_sec = tv_sec, .tv_usec = 0};
     FD_ZERO(&fdset);
@@ -142,17 +153,19 @@ int select_wrapper(int fd, int tv_sec)
     return select(fd + 1, &fdset, NULL, NULL, &timeout);
 }
 
-sig_atomic_t accept_loop(int fd)
+sig_atomic_t
+accept_loop(int fd)
 {
-    struct sockaddr_in client_addr;
-    int client = -1, ret;
-    unsigned int addrlen = sizeof(client_addr);
+    s_client client;
+    client.fd = -1;
+    int ret;
+    unsigned int addrlen = sizeof(client.addr);
     while (!sigcaught)
     {
         // -1 if ESOMETHING, 0 on timeout, >0 if success.
         if ((ret = select_wrapper(fd, 1)) <= 0)
             continue;
-        if ((client = accept(fd, (struct sockaddr*) &client_addr,
+        if ((client.fd = accept(fd, (struct sockaddr*) &client.addr,
                         &addrlen)) == (-1)) {
 #ifdef SOCK_VERBOSE
             complain(errno);
@@ -160,12 +173,9 @@ sig_atomic_t accept_loop(int fd)
             continue;
         }
 #ifdef SOCK_VERBOSE
-        notify_connected(&client_addr.sin_addr.s_addr);
+        notify_connected(&client.addr.sin_addr.s_addr);
 #endif
-        if (fork() == 0) { // 0 in parent
-            talk_wrapper(client, client_addr);
-            exit(0);
-        }
+        talk_wrapper(client); // This shouldn't block. (fork or thread)
     }
     return sigcaught;
 }
