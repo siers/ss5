@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
+#include <stdlib.h>
 #include "notify.h"
 #include "proto.h"
 #include "networking.h"
@@ -110,6 +111,8 @@ talk(s_client* client)
     if (choice == -1)
         return 3;
     client->method = buf[1];
+    snprintf((char*) buf, 255, ": method %i chosed.", client->method);
+    notify_custom(&client->addr.sin_addr.s_addr, (char*) buf);
     /* Handshake }}} */
 
     /* {{{ Request
@@ -147,11 +150,7 @@ talk(s_client* client)
     // Request is filled }}}
 
     /* {{{ Reply
-     * Making a connection(we need to do it before a reply can be sent)
-    char make_connection(char cmd, char atyp, char dstaddr[], uint16_t port,
-    void* srcip, int* sock, void* ip)
-    ret = make_connection(cmd, atyp, (char*) buf2, *((uint16_t*) buf), srcip,
-            &sd, &ip); */
+     * Making a connection(we need to do it before a reply can be sent) */
     ret = make_connection(client);
     /* Reply: VER, REPLY, RSV, ATYP, BIND.VAR, BIND.PORT */
     buf[0] = SOCKS_VER;
@@ -161,21 +160,17 @@ talk(s_client* client)
     *((uint32_t*) &(buf[4])) = client->ip; // This writes in buf[4 — 7].
     *((uint16_t*) &(buf[8])) = client->dport;
     send(client->fd, buf, 10, 0);
-    /* some test crap
-    buf[0] = 'a';
-    buf[1] = 'b';
-    send(sd, buf, 2, 0); */
     /* Reply }}} */
 
     /* {{{ Crap */
 #ifdef SOCK_VERBOSE
-    snprintf((char*) buf, 255, ": reply sent with reply code %i", ret);
+    snprintf((char*) buf, 255, ": reply sent with reply code %i.", ret);
     notify_custom(&client->addr.sin_addr.s_addr, (char*) buf);
 #endif
     if (ret != 0)
         return 10;
 #ifdef SOCK_VERBOSE
-    notify_custom(&client->addr.sin_addr.s_addr, " is smashed.");
+    notify_custom(&client->addr.sin_addr.s_addr, " is fused.");
 #endif
     fuse_sockets(client->fd, client->sd, client);
     close(client->sd);
@@ -195,4 +190,5 @@ talk_wrapper(s_client client)
     notify_disconnected(&client.addr.sin_addr.s_addr, ret, errno);
 #endif
     close(client.fd);
+    exit(0);
 }
