@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -DSOCK_VERBOSE -g3
+CFLAGS = -Wall -DSOCK_VERBOSE -g3 -s
 LDFLAGS =
 OBJ = bin/main.o bin/networking.o bin/notify.o bin/proto.o
 
