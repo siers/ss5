@@ -91,19 +91,19 @@ create_socket(uint16_t alterport)
 }
 
 void
-cat_socket(int sd) // For debugging purposes.
+cat_socket(int src, int dest)
 {
     char buf[8192];
     int ret;
-    while ((ret = recv(sd, buf, 8192, 0)) > 0) {
-        //printf("Retval: %i.\n", ret); // including stdio.h would be nice
-        write(STDOUT_FILENO, buf, ret);
+    while ((ret = recv(src, buf, 8192, 0)) > 0) {
+        send(dest, buf, ret, 0);
     }
 }
 
 void
 fuse_sockets(int sd1, int sd2, s_client* client)
 {
+    /* {{{
     // No checking whether socks are valid will be done. — They should be. ;-D
     char buf[blen];
     int *s1, *s2, ret, maxsd;
@@ -126,11 +126,6 @@ fuse_sockets(int sd1, int sd2, s_client* client)
             case 0:
                 continue;
         }
-        /*
-#ifdef SOCK_VERBOSE
-        notify_custom(&client->addr.sin_addr.s_addr, ": Escape from select().");
-#endif
-        */
         if (FD_ISSET(sd1, &set) == 0) { // If true, then sd2 is set.
             s1 = &sd2;
             s2 = &sd1;
@@ -146,14 +141,15 @@ fuse_sockets(int sd1, int sd2, s_client* client)
                 return;
             if (send(*s2, buf, blen, 0) < 0)
                 return;
-            /*
-#ifdef SOCK_VERBOSE
-            notify_custom(&client->addr.sin_addr.s_addr,
-                    ": Bytes sent one way or another.");
-#endif
-            */
         } while (ret == blen);
     }
+    }}} */
+    if (fork() == 0)
+    {
+        cat_socket(sd1, sd2);
+        exit(0);
+    }
+    cat_socket(sd2, sd1);
 }
 
 int
