@@ -73,8 +73,8 @@ make_connection(s_client* client)
         default:
             return 7;
     }
-    return 0;
-} /// Big-ass function }}}
+    return 0; /// Big-ass function }}}
+}
 
 char
 talk(s_client* client)

@@ -53,8 +53,8 @@ void notify_making_connection(const s_client* client)
         printf("[%s] %s requested connection with weird ATYP: %i.\n",
                 timestr, ipstr2, client->atyp);
     }
-    printf("[%s] %s requested connection to %s. (ATYP: %i)\n",
-            timestr, ipstr2, ptr, client->atyp);
+    printf("[%s] %s requested connection to %s:%i. (ATYP: %i)\n",
+            timestr, ipstr2, ptr, client->dport, client->atyp);
 }
 
 void notify_custom(void* in, char* text)
