@@ -24,4 +24,9 @@ typedef struct {
     char buf[255];
 } s_client; // SOCKS client.
 
+typedef struct {
+    s_client *client;
+    char num;
+} thread_arg;
+
 #endif /* GUARD_SRC_STRUCTS_H_ */

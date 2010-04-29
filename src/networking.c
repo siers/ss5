@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <errno.h>
+#include <pthread.h>
 #include "proto.h"
 #include "networking.h"
 #include "notify.h"
@@ -90,66 +91,48 @@ create_socket(uint16_t alterport)
     return sock;
 }
 
-void
-cat_socket(int src, int dest)
+void*
+cat_socket(void* m)
 {
+    int src, dest;
+    thread_arg* a = (thread_arg*) m;
+    notify_custom(&a->client->ip, ": thread started.");
+    if (a->num == 1) {
+        src = a->client->sd;
+        dest = a->client->fd;
+    } else {
+        dest = a->client->sd;
+        src = a->client->fd;
+    }
     char buf[8192];
     int ret;
     while ((ret = recv(src, buf, 8192, 0)) > 0) {
         send(dest, buf, ret, 0);
     }
+    pthread_exit(NULL);
 }
 
 void
 fuse_sockets(int sd1, int sd2, s_client* client)
 {
-    /* {{{
-    // No checking whether socks are valid will be done. — They should be. ;-D
-    char buf[blen];
-    int *s1, *s2, ret, maxsd;
-    fd_set set;
-    struct timeval tv;
-    if (sd1 > sd2)
-        maxsd = sd1;
-    else
-        maxsd = sd2;
-    while (1) // Exit loop with return.
-    {
-        FD_ZERO(&set);
-        FD_SET(sd1, &set);
-        FD_SET(sd2, &set);
-        tv.tv_sec  = 1;
-        tv.tv_usec = 0;
-        switch (select(sd2+1, &set, NULL, NULL, &tv)) {
-            case -1:
-                return;
-            case 0:
-                continue;
-        }
-        if (FD_ISSET(sd1, &set) == 0) { // If true, then sd2 is set.
-            s1 = &sd2;
-            s2 = &sd1;
-        }
-        else {
-            s1 = &sd1;
-            s2 = &sd2;
-        }
-        do
-        {
-            ret = recv(*s1, buf, blen, 0);
-            if (ret <= 0)
-                return;
-            if (send(*s2, buf, blen, 0) < 0)
-                return;
-        } while (ret == blen);
-    }
-    }}} */
-    if (fork() == 0)
-    {
-        cat_socket(sd1, sd2);
-        exit(0);
-    }
-    cat_socket(sd2, sd1);
+    pthread_t c, s; // client -> server `n` vice versa
+    thread_arg ca = {.client = client, .num = 1};
+    thread_arg sa = {.client = client, .num = 2};
+    pthread_create(&c, NULL, &cat_socket, &ca);
+    pthread_create(&s, NULL, &cat_socket, &sa);
+
+    fd_set fdset;
+    struct timeval timeout;
+    do {
+        FD_ZERO(&fdset);
+        FD_SET(sd1, &fdset);
+        FD_SET(sd2, &fdset);
+        //timeout.tv_sec = 1; timeout.tv_usec = 0;
+        sleep(1);
+    } while (!select(sd2 + 1, &fdset, NULL, NULL, NULL) < 0);
+    sleep(1);
+    pthread_cancel(c);
+    pthread_cancel(s);
 }
 
 int
