@@ -42,12 +42,12 @@ make_connection(s_client* client)
                 //char myconnect_domain(char* host, uint16_t port, int* buf)
                 case 1: // IPv4
                     client->ip = destip;
-                    if (!myconnect_ip(client->ip, ntohs(client->dport),
+                    if (!myconnect_ip(client->ip, client->dport,
                                 &client->sd))
                         return 0;
                     break;
                 case 3: // Domain name.
-                    if (!myconnect_domain(client->daddr, ntohs(client->dport),
+                    if (!myconnect_domain(client->daddr, client->dport,
                                 &client->sd, &client->ip))
                         return 0;
                     break;
@@ -111,8 +111,10 @@ talk(s_client* client)
     if (choice == -1)
         return 3;
     client->method = buf[1];
+#ifdef SOCK_VERBOSE
     snprintf((char*) buf, 255, ": method %i chosed.", client->method);
     notify_custom(&client->addr.sin_addr.s_addr, (char*) buf);
+#endif
     /* Handshake }}} */
 
     /* {{{ Request
@@ -147,6 +149,7 @@ talk(s_client* client)
     // Receiving DST.PORT from request.
     if (recv(client->fd, &client->dport, 2, 0) != 2)
         return 5;
+    client->dport = ntohs(client->dport);
     // Request is filled }}}
 
     /* {{{ Reply
@@ -158,7 +161,7 @@ talk(s_client* client)
     buf[2] = 0;
     buf[3] = client->atyp;
     *((uint32_t*) &(buf[4])) = client->ip; // This writes in buf[4 — 7].
-    *((uint16_t*) &(buf[8])) = client->dport;
+    *((uint16_t*) &(buf[8])) = htons(client->dport);
     send(client->fd, buf, 10, 0);
     /* Reply }}} */
 
