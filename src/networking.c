@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <signal.h> /* For sig_atomic_t. */
 #include <sys/select.h>
@@ -96,7 +97,9 @@ cat_socket(void* m)
 {
     int src, dest;
     thread_arg* a = (thread_arg*) m;
-    notify_custom(&a->client->ip, ": thread started.");
+#ifdef debug
+    //notify_custom(&a->client->ip, ": thread started.");
+#endif
     if (a->num == 1) {
         src = a->client->sd;
         dest = a->client->fd;
@@ -109,6 +112,12 @@ cat_socket(void* m)
     while ((ret = recv(src, buf, 8192, 0)) > 0) {
         send(dest, buf, ret, 0);
     }
+#ifdef debug
+    char shenanigans[50];
+    snprintf(shenanigans, 50, ": exiting thread %i, recv retval = %i.",
+            a->num, ret);
+    notify_custom(&shenanigans, shenanigans);
+#endif
     pthread_exit(NULL);
 }
 
@@ -122,15 +131,16 @@ fuse_sockets(int sd1, int sd2, s_client* client)
     pthread_create(&s, NULL, &cat_socket, &sa);
 
     fd_set fdset;
-    struct timeval timeout;
     do {
         FD_ZERO(&fdset);
         FD_SET(sd1, &fdset);
         FD_SET(sd2, &fdset);
-        //timeout.tv_sec = 1; timeout.tv_usec = 0;
         sleep(1);
     } while (!select(sd2 + 1, &fdset, NULL, NULL, NULL) < 0);
-    sleep(1);
+#ifdef debug
+    notify_custom(&client->addr.sin_addr.s_addr, ": escape from select, "
+            "killing threads.");
+#endif
     pthread_cancel(c);
     pthread_cancel(s);
 }
