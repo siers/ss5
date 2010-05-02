@@ -21,6 +21,7 @@ static char* error_table[] = {
 };
 
 char ipstr[255], timestr[255], ipstr2[255];
+char nullstr[] = "0.0.0.0"; // for debug
 time_t t;
 struct tm* tmp;
 // So that I wouldn't have to recreate them every time I call a function.
@@ -60,7 +61,8 @@ void notify_making_connection(const s_client* client)
 void notify_custom(void* in, char* text)
 {
     create_timestr();
-    inet_ntop(AF_INET, in, ipstr, 255);
+    if (in) // In case I pass NULL when debugging.
+        inet_ntop(AF_INET, in, ipstr, 255);
     char tmp[255] = "[%s] %s";
     strncat(tmp, text, 255);
     printf(tmp, timestr, ipstr);
