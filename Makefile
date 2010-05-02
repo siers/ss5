@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -DSOCK_VERBOSE -g3 -s
+CFLAGS = -Wall -DSOCK_VERBOSE -Ddebug -g3 -s
 LDFLAGS = -lpthread
 OBJ = bin/main.o bin/networking.o bin/notify.o bin/proto.o
 
