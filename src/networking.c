@@ -1,7 +1,6 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include <stdio.h>
 #include <string.h>
 #include <signal.h> /* For sig_atomic_t. */
 #include <sys/select.h>
@@ -13,6 +12,10 @@
 #include "networking.h"
 #include "notify.h"
 #include "defs.h"
+
+#ifdef debug
+#include <stdio.h>
+#endif
 
 extern sig_atomic_t sigcaught;
 
@@ -93,40 +96,32 @@ create_socket(uint16_t alterport)
 }
 
 void*
-cat_socket(void* m)
+cat_socket(void* mem)
 {
-    int src, dest;
-    thread_arg* a = (thread_arg*) m;
-#ifdef debug
-    //notify_custom(&a->client->ip, ": thread started.");
-#endif
-    if (a->num == 1) {
-        src = a->client->sd;
-        dest = a->client->fd;
-    } else {
-        dest = a->client->sd;
-        src = a->client->fd;
-    }
+    thread_arg* arg = (thread_arg*) mem;
     char buf[8192];
     int ret;
-    while ((ret = recv(src, buf, 8192, 0)) > 0) {
-        send(dest, buf, ret, 0);
+    while ((ret = recv(arg->src, buf, 8192, 0)) > 0) {
     }
 #ifdef debug
     char shenanigans[50];
     snprintf(shenanigans, 50, ": exiting thread %i, recv retval = %i.",
-            a->num, ret);
-    notify_custom(&shenanigans, shenanigans);
+            arg->num, ret);
+    notify_custom(NULL, shenanigans);
 #endif
     pthread_exit(NULL);
+    close(arg->src);
+    close(arg->dest);
 }
 
 void
 fuse_sockets(int sd1, int sd2, s_client* client)
 {
-    pthread_t c, s; // client -> server `n` vice versa
-    thread_arg ca = {.client = client, .num = 1};
-    thread_arg sa = {.client = client, .num = 2};
+    pthread_t c, s;
+    thread_arg ca = {.src  = dup(client->fd),
+        .dest = dup(client->sd), .num = 1};
+    thread_arg sa = {.dest = dup(client->fd),
+        .src  = dup(client->sd), .num = 1};
     pthread_create(&c, NULL, &cat_socket, &ca);
     pthread_create(&s, NULL, &cat_socket, &sa);
 
@@ -143,6 +138,8 @@ fuse_sockets(int sd1, int sd2, s_client* client)
 #endif
     pthread_cancel(c);
     pthread_cancel(s);
+    shutdown(client->fd, SHUT_RDWR);
+    shutdown(client->sd, SHUT_RDWR);
 }
 
 int

@@ -25,7 +25,7 @@ typedef struct {
 } s_client; // SOCKS client.
 
 typedef struct {
-    s_client *client;
+    int src, dest;
     char num;
 } thread_arg;
 
