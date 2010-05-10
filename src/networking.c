@@ -102,6 +102,7 @@ cat_socket(void* mem)
     char buf[8192];
     int ret;
     while ((ret = recv(arg->src, buf, 8192, 0)) > 0) {
+        send(arg->dest, buf, ret, 0);
     }
 #ifdef debug
     char shenanigans[50];
