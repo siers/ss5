@@ -176,6 +176,11 @@ talk(s_client* client)
     notify_custom(&client->addr.sin_addr.s_addr, " is fused.");
 #endif
     fuse_sockets(client->fd, client->sd, client);
+#ifdef debug
+    printf("return from fuse_sockets in talk()\n");
+#endif
+    shutdown(client->fd, SHUT_RDWR);
+    shutdown(client->sd, SHUT_RDWR);
     close(client->sd);
     /* Crap }}} */
 
