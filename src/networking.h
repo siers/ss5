@@ -4,8 +4,8 @@
 #include <netinet/in.h>
 #include <signal.h>
 #include "defs.h"
-//#define blen 8192
-#define blen 8192 * 10
+#define BUF_SIZE 8192
+#define TIMEOUT 500
 
 extern uint16_t port;
 

@@ -1,5 +1,5 @@
-#ifndef GUARD_SRC_STRUCTS_H_
-#define GUARD_SRC_STRUCTS_H_
+#ifndef GUARD_SRC_DEFS_H_
+#define GUARD_SRC_DEFS_H_
 #include <stdint.h>
 #include <netinet/in.h>
 
@@ -27,6 +27,9 @@ typedef struct {
 typedef struct {
     int src, dest;
     char num;
+#ifdef debug
+    char type; // server or client, that is
+#endif
 } thread_arg;
 
-#endif /* GUARD_SRC_STRUCTS_H_ */
+#endif /* GUARD_SRC_DEFS_H_ */

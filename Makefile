@@ -1,6 +1,8 @@
 CC = gcc
-CFLAGS = -Wall -DSOCK_VERBOSE -Ddebug -g3 -s
-LDFLAGS = -lpthread
+CFLAGS = -Wall -DSOCK_VERBOSE -Ddebug -g3
+#CFLAGS = -Wall -DSOCK_VERBOSE
+#CFLAGS = -Wall
+#LDFLAGS = -lpthread
 OBJ = bin/main.o bin/networking.o bin/notify.o bin/proto.o
 
 all: bin/main

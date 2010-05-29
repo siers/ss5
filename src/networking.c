@@ -8,6 +8,7 @@
 #include <netdb.h>
 #include <errno.h>
 #include <pthread.h>
+#include <poll.h>
 #include "proto.h"
 #include "networking.h"
 #include "notify.h"
@@ -15,6 +16,8 @@
 
 #ifdef debug
 #include <stdio.h>
+#include <errno.h>
+extern int errno;
 #endif
 
 extern sig_atomic_t sigcaught;
@@ -92,55 +95,59 @@ create_socket(uint16_t alterport)
 #endif
     if (bind(sock, (struct sockaddr*) &srv, sizeof(srv)) || listen(sock, 5))
         return -1;
+    char True = 1; // I am being the captain obvious! Weeee...
+    // This sockopt allows other sockets to bind() to this port.
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &True, sizeof(True));
     return sock;
 }
 
-void*
-cat_socket(void* mem)
-{
-    thread_arg* arg = (thread_arg*) mem;
-    char buf[8192];
-    int ret;
-    while ((ret = recv(arg->src, buf, 8192, 0)) > 0) {
-        send(arg->dest, buf, ret, 0);
-    }
-#ifdef debug
-    char shenanigans[50];
-    snprintf(shenanigans, 50, ": exiting thread %i, recv retval = %i.",
-            arg->num, ret);
-    notify_custom(NULL, shenanigans);
-#endif
-    pthread_exit(NULL);
-    close(arg->src);
-    close(arg->dest);
-}
-
 void
-fuse_sockets(int sd1, int sd2, s_client* client)
+fuse_sockets(int fd, int sd, s_client* client)
 {
-    pthread_t c, s;
-    thread_arg ca = {.src  = dup(client->fd),
-        .dest = dup(client->sd), .num = 1};
-    thread_arg sa = {.dest = dup(client->fd),
-        .src  = dup(client->sd), .num = 1};
-    pthread_create(&c, NULL, &cat_socket, &ca);
-    pthread_create(&s, NULL, &cat_socket, &sa);
-
-    fd_set fdset;
-    do {
-        FD_ZERO(&fdset);
-        FD_SET(sd1, &fdset);
-        FD_SET(sd2, &fdset);
-        sleep(1);
-    } while (!select(sd2 + 1, &fdset, NULL, NULL, NULL) < 0);
+    struct pollfd fds[2];
+    //char *buf = malloc(BUF_SIZE);
+    char buf[BUF_SIZE];
+    unsigned char counter;
+    int ret;
+    fds[0].fd = fd;
+    fds[1].fd = sd;
+    fds[0].events = POLLIN | POLLNVAL;
+    fds[1].events = POLLIN | POLLNVAL;
 #ifdef debug
-    notify_custom(&client->addr.sin_addr.s_addr, ": escape from select, "
-            "killing threads.");
+    printf("fd: %i; sd: %i.\n", fd, sd);
 #endif
-    pthread_cancel(c);
-    pthread_cancel(s);
-    shutdown(client->fd, SHUT_RDWR);
-    shutdown(client->sd, SHUT_RDWR);
+
+    while (1) {
+        // TIMEOUT's a constant in networking.h
+        switch(poll(fds, 2, TIMEOUT)) {
+            case -1:
+#ifdef debug
+                printf("poll() == -1, strerr: %s\n", strerror(errno));
+#endif
+                return;
+            case 0: continue;
+        }
+        for (counter = 0; counter < 2; counter++) {
+#ifdef debug
+            printf("fds[counter].revents: %i\n", fds[counter].revents);
+#endif
+            if (fds[counter].revents & POLLNVAL)
+                return;
+            if (fds[counter].revents & POLLIN) {
+                if (1 > (ret = recv(fds[counter].fd, buf, BUF_SIZE - 1, 0))) {
+#ifdef debug
+                    printf("returning because of recv() = %i; err: %s\n",
+                            ret, strerror(errno));
+#endif
+                    return;
+                }
+                send(fds[counter ^ 1].fd, buf, ret, 0);
+#if debug
+                printf("sent\n");
+#endif
+            }
+        }
+    }
 }
 
 int
@@ -164,8 +171,11 @@ accept_loop(int fd)
     unsigned int addrlen = sizeof(client.addr);
     while (!sigcaught)
     {
+#ifdef debug
+        printf("Cycle in accept_loop\n");
+#endif
         // -1 if ESOMETHING, 0 on timeout, >0 if success.
-        if ((ret = select_wrapper(fd, 1)) <= 0)
+        if ((ret = select_wrapper(fd, 5)) <= 0)
             continue;
         if ((client.fd = accept(fd, (struct sockaddr*) &client.addr,
                         &addrlen)) == (-1)) {
@@ -178,6 +188,8 @@ accept_loop(int fd)
         notify_connected(&client.addr.sin_addr.s_addr);
 #endif
         talk_wrapper(client); // This shouldn't block. (fork or thread)
+#ifndef debug
+        printf("alkwjefnalkjwefnlakjefnlkjaefn\n");
     }
     return sigcaught;
 }
