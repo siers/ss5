@@ -102,7 +102,40 @@ create_socket(uint16_t alterport)
 }
 
 void
-fuse_sockets(int fd, int sd, s_client* client)
+fuse_sockets_select(int fd, int sd, s_client* client)
+{
+    fd_set fdset, copy;
+    struct timeval tv;
+    int ret;
+    char buf[BUF_SIZE];
+
+    FD_ZERO(&copy);
+    FD_SET(fd, &copy);
+    FD_SET(sd, &copy);
+
+    while (1)
+    {
+        memcpy(&fdset, &copy, sizeof fdset);
+        tv.tv_sec = 1; tv.tv_usec = 0;
+        switch (select(sd+1, &fdset, NULL, NULL, &tv)) {
+            case -1: break;
+            case 0: continue;
+        }
+        if (FD_ISSET(fd, &fdset)){
+            if (!(ret = recv(fd, buf, BUF_SIZE, 0)))
+                break;
+            send(sd, buf, ret, 0);
+        }
+        if (FD_ISSET(sd, &fdset)){
+            if (!(ret = recv(sd, buf, BUF_SIZE, 0)))
+                break;
+            send(fd, buf, ret, 0);
+        }
+    }
+}
+
+void
+fuse_sockets_poll(int fd, int sd, s_client* client)
 {
     struct pollfd fds[2];
     //char *buf = malloc(BUF_SIZE);
@@ -113,38 +146,21 @@ fuse_sockets(int fd, int sd, s_client* client)
     fds[1].fd = sd;
     fds[0].events = POLLIN | POLLNVAL;
     fds[1].events = POLLIN | POLLNVAL;
-#ifdef debug
-    printf("fd: %i; sd: %i.\n", fd, sd);
-#endif
 
     while (1) {
         // TIMEOUT's a constant in networking.h
         switch(poll(fds, 2, TIMEOUT)) {
-            case -1:
-#ifdef debug
-                printf("poll() == -1, strerr: %s\n", strerror(errno));
-#endif
-                return;
+            case -1: return;
             case 0: continue;
         }
         for (counter = 0; counter < 2; counter++) {
-#ifdef debug
-            printf("fds[counter].revents: %i\n", fds[counter].revents);
-#endif
             if (fds[counter].revents & POLLNVAL)
                 return;
             if (fds[counter].revents & POLLIN) {
                 if (1 > (ret = recv(fds[counter].fd, buf, BUF_SIZE - 1, 0))) {
-#ifdef debug
-                    printf("returning because of recv() = %i; err: %s\n",
-                            ret, strerror(errno));
-#endif
                     return;
                 }
                 send(fds[counter ^ 1].fd, buf, ret, 0);
-#if debug
-                printf("sent\n");
-#endif
             }
         }
     }
@@ -188,8 +204,6 @@ accept_loop(int fd)
         notify_connected(&client.addr.sin_addr.s_addr);
 #endif
         talk_wrapper(client); // This shouldn't block. (fork or thread)
-#ifndef debug
-        printf("alkwjefnalkjwefnlakjefnlkjaefn\n");
     }
     return sigcaught;
 }
