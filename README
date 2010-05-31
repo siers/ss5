@@ -1,1 +1,14 @@
-A really simple SOCKS5 server implementation in C for IPv4.
+# About
+***
+A really simple, yet not very standard compilant, SOCKS5 server in C for IPv4.
+
+# Todo
+***
+- Port to win32.
+- Fix up the domain lookup.
+- Make talk() more customizable.
+- Add threading to talk_wrapper().
+
+# Building
+***
+This is real simple. Just `make` and it should be alright on any POSIX platform. Tested only on linux, though.
