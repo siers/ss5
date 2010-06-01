@@ -18,7 +18,7 @@ typedef struct {
 
     /* Connection Details (about one we made) */
     int sd; // Outgoing socket descriptor.
-    char daddr[255]; // Could someone find out what does this?
+    char daddr[255]; // Buffer for recv'ing domain/ip.
     uint16_t dport;
     uint32_t ip;
     char buf[255];
