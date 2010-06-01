@@ -10,8 +10,8 @@
 extern uint16_t port;
 
 char resolvehost(struct sockaddr_in*, char*);
-int myconnect_ip(uint32_t, uint16_t, int*);
-int myconnect_domain(char*, uint16_t, int*, uint32_t*);
+int myconnect_ip(s_client*);
+int myconnect_domain(s_client*);
 int create_socket(uint16_t alterport);
 void* cat_socket(void* m);
 void fuse_sockets_select(int, int, s_client*);

@@ -37,44 +37,53 @@ resolvehost(struct sockaddr_in* buf, char* host)
 }
 
 int
-myconnect_ip(uint32_t ip, uint16_t port, int* buf)
+myconnect_ip(s_client* client)
 {
-    int sd;
-    if ((sd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+    if ((client->sd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
         return -1;
     }
     struct sockaddr_in cli; // -ent
     bzero(&cli, sizeof(cli));
     cli.sin_family = AF_INET;
-    cli.sin_addr.s_addr = ip;
-    cli.sin_port = htons(port);
-    if (connect(sd,(struct sockaddr *) &cli, sizeof(cli)) == -1) {
-        close(sd);
+    cli.sin_addr.s_addr = client->ip;
+    cli.sin_port = htons(client->dport);
+    if (connect(client->sd,(struct sockaddr *) &cli, sizeof(cli)) == -1) {
+        close(client->sd);
         return -1;
     }
-    *buf = sd;
     return 0;
 }
 
 int
-myconnect_domain(char* host, uint16_t port, int* buf, uint32_t* ip)
+myconnect_domain(s_client* client)
 {
-    int sd;
-    if ((sd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+    struct addrinfo *first, *iter, hints;
+    memset(&hints, 0, sizeof(hints));
+
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = 0;
+    hints.ai_flags = 0;
+
+    getaddrinfo(client->daddr, NULL, &hints, &first);
+    for (iter = first; iter->ai_next != NULL; iter = iter->ai_next)
+    {
+        if ((client->sd = socket(iter->ai_family, iter->ai_socktype,
+                        iter->ai_protocol)) == -1)
+            continue;
+        if (connect(client->sd, iter->ai_addr, iter->ai_addrlen) != -1)
+            break;
+        close(client->sd);
+    }
+
+    // !! Won't work w/ IPv6.
+    memcpy(&client->ip, &((struct sockaddr_in*) iter->ai_addr)->sin_addr,
+            sizeof(((struct sockaddr_in*) iter->ai_addr)->sin_addr));
+    freeaddrinfo(first);
+
+    if (iter == NULL)
         return -1;
-    }
-    struct sockaddr_in hostaddr;
-    if (resolvehost(&hostaddr, host) != 0) {
-        close(sd);
-        return -2;
-    }
-    if (connect(sd,(struct sockaddr *) &hostaddr, sizeof(hostaddr)) == -1) {
-        close(sd);
-        return -1;
-    }
-    *buf = sd;
-    *ip = hostaddr.sin_addr.s_addr;
-    return sd;
+    return 0;
 }
 
 int

@@ -42,13 +42,11 @@ make_connection(s_client* client)
                 //char myconnect_domain(char* host, uint16_t port, int* buf)
                 case 1: // IPv4
                     client->ip = destip;
-                    if (!myconnect_ip(client->ip, client->dport,
-                                &client->sd))
+                    if (!myconnect_ip(client))
                         return 0;
                     break;
                 case 3: // Domain name.
-                    if (!myconnect_domain(client->daddr, client->dport,
-                                &client->sd, &client->ip))
+                    if (!myconnect_domain(client))
                         return 0;
                     break;
                 case 4: // IPv6
@@ -136,6 +134,9 @@ talk(s_client* client)
                 return 7;
             char tmplen = buf[0];
             memset(client->daddr, 0, 255);
+#ifdef debug
+            printf("Length of incoming string: %i\n", tmplen);
+#endif
             if (recv(client->fd, client->daddr, tmplen, 0) != tmplen)
                 return 8;
             break;
@@ -191,8 +192,10 @@ void
 talk_wrapper(s_client client)
 {
     // TODO: s/fork/pthreads/
+#ifndef debug
     if (fork() != 0)
         return;
+#endif
     int ret = talk(&client);
 #ifdef SOCK_VERBOSE
     notify_disconnected(&client.addr.sin_addr.s_addr, ret, errno);
