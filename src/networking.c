@@ -111,7 +111,7 @@ create_socket(uint16_t alterport)
 }
 
 void
-fuse_sockets_select(int fd, int sd, s_client* client)
+fuse_sockets_select(int fd, int sd)
 {
     fd_set fdset, copy;
     struct timeval tv;
@@ -144,7 +144,7 @@ fuse_sockets_select(int fd, int sd, s_client* client)
 }
 
 void
-fuse_sockets_poll(int fd, int sd, s_client* client)
+fuse_sockets_poll(int fd, int sd)
 {
     struct pollfd fds[2];
     //char *buf = malloc(BUF_SIZE);

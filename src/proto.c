@@ -176,7 +176,7 @@ talk(s_client* client)
 #ifdef SOCK_VERBOSE
     notify_custom(&client->addr.sin_addr.s_addr, " is fused.");
 #endif
-    fuse_sockets_poll(client->fd, client->sd, client);
+    fuse_sockets_poll(client->fd, client->sd);
 #ifdef debug
     printf("return from fuse_sockets in talk()\n");
 #endif
