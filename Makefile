@@ -1,21 +1,21 @@
 CC = gcc
-CFLAGS = -Wall -DSOCK_VERBOSE -Ddebug -g3
-#CFLAGS = -Wall -DSOCK_VERBOSE
+#CFLAGS = -Wall -DSOCK_VERBOSE -Ddebug -g3
+CFLAGS = -Wall -Wextra -DSOCK_VERBOSE -c -o
 #LDFLAGS = -lpthread
 OBJ = bin/main.o bin/networking.o bin/notify.o bin/proto.o
 
-all: mkdir bin/main
+all: bin bin/main
 
 bin/%.o: src/%.c
-	$(CC) $(CFLAGS) -o $@ -c $<
+	$(CC) $(CFLAGS) $@ $<
 
 bin/main: $(OBJ)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-.PHONY: clean mkdir
-
-mkdir:
+bin:
 	mkdir -p bin
+
+.PHONY: clean
 
 clean:
 	rm -r bin
