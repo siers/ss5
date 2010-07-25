@@ -10,10 +10,16 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <getopt.h>
 #include "networking.h"
 #include "notify.h"
 
+#ifdef SOCK_VERBOSE
+#define VERSION_STRING  "SS5, v1.1\n"
+#endif
+
 extern int errno;
+extern char* optarg;
 
 uint16_t port = 1337;
 int sock;
@@ -37,14 +43,6 @@ void sigcallback(int signal_)
     sigcaught = signal_;
 }
 
-void buttsecks(int _) // SIGSEGV handler.
-{
-#ifdef SOCK_VERBOSE
-    printf("Segfault!!!\n");
-#endif
-    exit(0);
-}
-
 int runsocks5()
 {
     if ((sock = create_socket(0)) == -1)
@@ -61,9 +59,28 @@ int runsocks5()
 
 int main(int argc, char** argv)
 {
+    int opt;
+    while ((opt = getopt(argc, argv, "vp:")) != -1) {
+        switch (opt)
+        {
+#ifdef SOCK_VERBOSE
+            case 'v':
+                printf(VERSION_STRING);
+                exit(1);
+#endif
+            case 'p':
+                port = atoi(optarg);
+                break;
+            default:
+#ifdef SOCK_VERBOSE
+                printf("Usage: %s [-v] [-p <port>]\n", argv[0]);
+#endif
+                exit(1);
+        }
+    }
+
     sigcaught = 0;
     signal(SIGINT, sigcallback);
     signal(SIGHUP, SIG_IGN);
-    signal(SIGSEGV, buttsecks);
     return runsocks5();
 }
