@@ -1,15 +1,60 @@
-#include <stdint.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <errno.h>
-#include <string.h>
-#include <stdlib.h>
-#include "notify.h"
-#include "proto.h"
-#include "networking.h"
-#include "defs.h"
+#include "everything.h"
 
 extern int errno;
+
+static int
+connect_address(struct client* client)
+{
+    if ((client->sd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+        return -1;
+    }
+
+    struct sockaddr_in cli; // -ent
+
+    bzero(&cli, sizeof(cli));
+    cli.sin_family = AF_INET;
+    cli.sin_addr.s_addr = client->ip;
+    cli.sin_port = htons(client->dport);
+
+    if (connect(client->sd,(struct sockaddr *) &cli, sizeof(cli)) == -1) {
+        close(client->sd);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int
+connect_domain(struct client* client)
+{
+    struct addrinfo *first, *iter, hints;
+    memset(&hints, 0, sizeof(hints));
+
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = 0;
+    hints.ai_flags = 0;
+
+    getaddrinfo(client->daddr, NULL, &hints, &first);
+    for (iter = first; iter->ai_next != NULL; iter = iter->ai_next)
+    {
+        if ((client->sd = socket(iter->ai_family, iter->ai_socktype,
+                        iter->ai_protocol)) == -1)
+            continue;
+        if (connect(client->sd, iter->ai_addr, iter->ai_addrlen) != -1)
+            break;
+        close(client->sd);
+    }
+
+    // !! Won't work w/ IPv6.
+    memcpy(&client->ip, &((struct sockaddr_in*) iter->ai_addr)->sin_addr,
+            sizeof(((struct sockaddr_in*) iter->ai_addr)->sin_addr));
+    freeaddrinfo(first);
+
+    if (iter == NULL)
+        return -1;
+    return 0;
+}
 
 /*
  * {{{ Make_connection() return values:
@@ -26,27 +71,24 @@ extern int errno;
  * +------------------------------- }}}
  */
 
-char
-make_connection(s_client* client)
-{ // {{{ Big-ass switch/if function.
+static char
+make_connection(struct client* client)
+{
+
     unsigned int destip = *((int*) client->daddr);
-#ifdef SOCK_VERBOSE
-    notify_making_connection(client);
-#endif
+
     switch (client->cmd)
     {
         case 1: // CONNECT
             switch (client->atyp)
             {
-                //char myconnect_ip(int ip, uint16_t port, int* buf)
-                //char myconnect_domain(char* host, uint16_t port, int* buf)
                 case 1: // IPv4
                     client->ip = destip;
-                    if (!myconnect_ip(client))
+                    if (!connect_address(client))
                         return 0;
                     break;
                 case 3: // Domain name.
-                    if (!myconnect_domain(client))
+                    if (!connect_domain(client))
                         return 0;
                     break;
                 case 4: // IPv6
@@ -71,11 +113,11 @@ make_connection(s_client* client)
         default:
             return 7;
     }
-    return 0; /// Big-ass function }}}
+    return 0;
 }
 
-char
-talk(s_client* client)
+static char
+talk(struct client* client)
 {
     /* {{{ Handshake */
     int ret; // For saving various return values.
@@ -109,10 +151,6 @@ talk(s_client* client)
     if (choice == -1)
         return 3;
     client->method = buf[1];
-#ifdef SOCK_VERBOSE
-    snprintf((char*) buf, 255, ": method %i chosed.", client->method);
-    notify_custom(&client->addr.sin_addr.s_addr, (char*) buf);
-#endif
     /* Handshake }}} */
 
     /* {{{ Request
@@ -134,9 +172,6 @@ talk(s_client* client)
                 return 7;
             char tmplen = buf[0];
             memset(client->daddr, 0, 255);
-#ifdef debug
-            printf("Length of incoming string: %i\n", tmplen);
-#endif
             if (recv(client->fd, client->daddr, tmplen, 0) != tmplen)
                 return 8;
             break;
@@ -164,42 +199,66 @@ talk(s_client* client)
     *((uint32_t*) &(buf[4])) = client->ip; // This writes in buf[4 — 7].
     *((uint16_t*) &(buf[8])) = htons(client->dport);
     send(client->fd, buf, 10, 0);
-    /* Reply }}} */
 
-    /* {{{ Crap */
-#ifdef SOCK_VERBOSE
-    snprintf((char*) buf, 255, ": reply sent with reply code %i.", ret);
-    notify_custom(&client->addr.sin_addr.s_addr, (char*) buf);
-#endif
     if (ret != 0)
         return 10;
-#ifdef SOCK_VERBOSE
-    notify_custom(&client->addr.sin_addr.s_addr, " is fused.");
-#endif
-    fuse_sockets_poll(client->fd, client->sd);
-#ifdef debug
-    printf("return from fuse_sockets in talk()\n");
-#endif
+    else
+        return 0;
+}
+
+static void
+cat(int fd, int sd)
+{
+    struct pollfd fds[2];
+    char buf[BUFSIZ];
+    unsigned char counter;
+    int ret;
+    fds[0].fd = fd;
+    fds[1].fd = sd;
+    fds[0].events = POLLIN | POLLNVAL;
+    fds[1].events = POLLIN | POLLNVAL;
+
+    while (1) {
+        // TIMEOUT's a constant in networking.h
+        switch(poll(fds, 2, 5000)) {
+            case -1: return;
+            case 0: continue;
+        }
+
+        for (counter = 0; counter < 2; counter++) {
+            if (fds[counter].revents & POLLNVAL)
+                return;
+            if (fds[counter].revents & POLLIN) {
+                if (1 > (ret = recv(fds[counter].fd, buf, BUFSIZ - 1, 0))) {
+                    return;
+                }
+                send(fds[counter ^ 1].fd, buf, ret, 0);
+            }
+        }
+    }
+}
+
+static void
+client_use(struct client* client)
+{
+    cat(client->fd, client->sd);
     shutdown(client->fd, SHUT_RDWR);
     shutdown(client->sd, SHUT_RDWR);
     close(client->sd);
-    /* Crap }}} */
-
-    return 0;
 }
 
 void
-talk_wrapper(s_client client)
+client_daemon(struct client* client)
 {
-    // TODO: s/fork/pthreads/
-#ifndef debug
     if (fork() != 0)
         return;
-#endif
-    int ret = talk(&client);
-#ifdef SOCK_VERBOSE
-    notify_disconnected(&client.addr.sin_addr.s_addr, ret, errno);
-#endif
-    close(client.fd);
-    exit(0);
+
+    int ret;
+
+    if ((ret = talk(client)) == 0) {
+        client_use(client);
+    }
+
+    close(client->fd);
+    exit(ret);
 }
